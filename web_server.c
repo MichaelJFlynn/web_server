@@ -3,11 +3,12 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <pthread.h>
+#include <stdlib.h>
 
-typedef struct{
+struct thread_arg{
   int connection;
   struct sockaddr_in client;
-} thread_arg;
+};
 
 void *handleConnection(void*);
 
@@ -48,10 +49,10 @@ int main(int argc, char ** argv) {
     if(connection == -1){
       printf("Connection failed");
     }
-    struct thread_arg arg = (thread_arg) *malloc(sizeof(thread_arg));
-    arg.connection = connection;
-    arg.client = cliaddr;
-    int thread = pthread_create(&tid, NULL, handleConnection, &arg);
+    struct thread_arg* arg = malloc(sizeof(struct thread_arg));
+    arg->connection = connection;
+    arg->client = cliaddr;
+    int thread = pthread_create(&tid, NULL, handleConnection, arg);
     i++;
   } 
   close(sock);
@@ -62,13 +63,16 @@ int main(int argc, char ** argv) {
 
 
 void * handleConnection(void * arg) {
-  struct thread_arg args = (thread_arg) *arg;
-  int connection = args.connection;
-  struct sockaddr_in cliaddr = args.client;
+  struct thread_arg* args = arg;
+  int connection = args->connection;
+  struct sockaddr_in cliaddr = args->client;
+  char* buffer = malloc(1024);
+  int nread;
+  printf("Connection from %s, port %d\n:", inet_ntoa(cliaddr.sin_addr), ntohs(cliaddr.sin_port));
+  while((nread = read(connection, buffer, 1024)) > 0){
+    write(1, buffer, nread);
+  }
 
-
-
-  printf("Connection from %s, port %d\n", inet_ntoa(cliaddr.sin_addr), ntohs(cliaddr.sin_port));
   write(connection, "Hello I am Mike\n", sizeof("Hello I am Mike\n"));
   close(connection);
 
