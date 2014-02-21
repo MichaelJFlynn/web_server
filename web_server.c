@@ -5,6 +5,7 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 // HTTP 1.0 status lines
 #define HTTP_OK "HTTP/1.0 200 OK\n"
@@ -76,51 +77,102 @@ int main(int argc, char ** argv) {
 }
 
 
+void sendResponse(int conn, int fd, char *http_response, int response_size) {
+  // http response header
+  write(conn, http_response, response_size);
+
+  // Date
+  char date_buf[500];
+  time_t now = time(0);
+  struct tm tm =  *gmtime(&now);
+  strftime(date_buf, sizeof(date_buf), "%a, %d %b %Y %H:%M:%S %Z", &tm);
+  write(conn, "Date: ", sizeof("Date: "));
+  write(conn, date_buf, strlen(date_buf));
+  write(conn, "\n", sizeof("\n"));
+       
+  if(fd == -1) {
+    // there is no content-type 
+    
+    // Content length is zero
+    write(conn, "Content-Length: 0", sizeof("Content-Length: 0")); 
+    
+  } else {
+    // we have valid content to write
+    int nread;
+    int buffer[1024];
+    // TODO: content-type, length
+
+    while((nread = read(fd, buffer, sizeof(buffer))) > 0) {
+      write(conn, buffer, nread);
+    } 
+  }
+}
+
+
 void * handleConnection(void * arg) {
+  // variables
   struct thread_arg* args = arg;
   int connection = args->connection;
   struct sockaddr_in cliaddr = args->client;
   char* buffer = malloc(1024);
   char* token;
   int nread, fd;
+  int keep_alive = 1;
+
+  // notify console of connection
   printf("Connection from %s, port %d:\n", inet_ntoa(cliaddr.sin_addr), ntohs(cliaddr.sin_port));
-  while((nread = read(connection, buffer, 1024)) > 0){
-    write(1, buffer, nread);
-    token = strtok(buffer, " \n\r");
-    if(strcmp(token, "GET") == 0) {
-      // now token is the filename
+
+  while(keep_alive) {
+    if((nread = read(connection, buffer, 1024)) > 0){
+      // write contents to buffer for debug
+      write(1, buffer, nread);
+      
+      // seperates request into tokens, eliminating whitespace
+      // first token is request type
+      token = strtok(buffer, " \n\r");
+      if(strcmp(token, "GET") != 0) {
+	// TODO: respond with "bad request"
+      }
+      char *request_type = token;
+ 
+      // second token is url
       token = strtok(NULL, " \n\r");
-      printf("filename: %s", token);
-      // sanitize filname
       if(strstr(token, "../") != NULL) {
-	// forbidden request
+	// TODO: forbidden request
 	
       }
-      fd = open(token, O_RDONLY);
-      if(fd == -1) {
-	perror("Error: ");
-	write(connection, "404, can't open file", sizeof("404, can't open file"));
-	break;
-      } else {
-	while((nread = read(fd, buffer, sizeof(buffer))) > 0) {
-	  token = strtok(NULL, " \n\r");
-	  if (strstr(token,"1.0")){
-	    write(connection, HTTP_OK, sizeof(HTTP_OK)); 
-	  } else {
-	    write(connection, HTTP_11_OK, sizeof(HTTP_11_OK));
-	  }
-	  //write(connection, "Content-Type: %s", );
-	  write(connection, buffer, nread);
-	}
-	close(fd);
-	break;
+      char *request_url = token;
+
+      // third token is HTTP protocol
+      token = strtok(NULL, " \n\r");
+      if(strcmp(token, "HTTP\1.0") != 0 && strcmp(token, "HTTP\1.1") != 0) {
+	// TODO: bad request
+	
       }
-    } else {
-      write(connection, "Error: bad request", sizeof("Error: bad request"));
+      char *protocol = token;
+
+      printf("filename: %s\n", request_url);
+      if(strcmp(request_url, "/") == 0) {
+	request_url = "index.html";
+      }
+      fd = open(request_url, O_RDONLY);
+      if(strcmp(protocol, "HTTP\1.0") == 0) {
+	// HTTP 1.0 protocol
+	if(fd == -1) {
+	  // TODO: 404
+	}
+	sendResponse(connection, fd, HTTP_OK, sizeof(HTTP_OK));
+      } else {
+	// HTTP 1.1 protocol 
+	if(fd == -1) {
+	  // TODO: 404
+	}
+	sendResponse(connection, fd, HTTP_11_OK, sizeof(HTTP_11_OK)); 
+      }
     }
     break;
   }
-
+  
   close(connection);
 
   free(buffer);
