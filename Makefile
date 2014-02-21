@@ -1,4 +1,4 @@
 all: c
 
 c:
-	gcc -o web_server web_server.c
+	gcc -pthread -o web_server web_server.c

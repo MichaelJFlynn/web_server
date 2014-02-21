@@ -4,6 +4,20 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <stdlib.h>
+#include <string.h>
+
+// HTTP 1.0 status lines
+#define HTTP_OK "HTTP/1.0 200 OK\n"
+#define HTTP_404 "HTTP/1.0 404 Not Found\n"
+#define HTTP_403 "HTTP/1.0 403 Forbidden\n"
+#define HTTP_400 "HTTP/1.0 400 Bad Request\n"
+
+// HTTP 1.1 status lines
+#define HTTP_11_OK "HTTP/1.1 200 OK\n"
+#define HTTP_11_404 "HTTP/1.1 404 Not Found\n"
+#define HTTP_11_403 "HTTP/1.1 403 Forbidden\n"
+#define HTTP_11_400 "HTTP/1.1 400 Bad Request\n"
+
 
 struct thread_arg{
   int connection;
@@ -67,16 +81,51 @@ void * handleConnection(void * arg) {
   int connection = args->connection;
   struct sockaddr_in cliaddr = args->client;
   char* buffer = malloc(1024);
-  int nread;
-  printf("Connection from %s, port %d\n:", inet_ntoa(cliaddr.sin_addr), ntohs(cliaddr.sin_port));
+  char* token;
+  int nread, fd;
+  printf("Connection from %s, port %d:\n", inet_ntoa(cliaddr.sin_addr), ntohs(cliaddr.sin_port));
   while((nread = read(connection, buffer, 1024)) > 0){
     write(1, buffer, nread);
+    token = strtok(buffer, " \n\r");
+    if(strcmp(token, "GET") == 0) {
+      // now token is the filename
+      token = strtok(NULL, " \n\r");
+      printf("filename: %s", token);
+      // sanitize filname
+      if(strstr(token, "../") != NULL) {
+	// forbidden request
+	
+      }
+      fd = open(token, O_RDONLY);
+      if(fd == -1) {
+	perror("Error: ");
+	write(connection, "404, can't open file", sizeof("404, can't open file"));
+	break;
+      } else {
+	while((nread = read(fd, buffer, sizeof(buffer))) > 0) {
+	  token = strtok(NULL, " \n\r");
+	  if (strstr(token,"1.0")){
+	    write(connection, HTTP_OK, sizeof(HTTP_OK)); 
+	  } else {
+	    write(connection, HTTP_11_OK, sizeof(HTTP_11_OK));
+	  }
+	  //write(connection, "Content-Type: %s", );
+	  write(connection, buffer, nread);
+	}
+	close(fd);
+	break;
+      }
+    } else {
+      write(connection, "Error: bad request", sizeof("Error: bad request"));
+    }
+    break;
   }
 
-  write(connection, "Hello I am Mike\n", sizeof("Hello I am Mike\n"));
   close(connection);
 
-
+  free(buffer);
   free(arg);
   return(NULL);
 }
+
+
